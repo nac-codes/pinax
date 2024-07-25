@@ -125,7 +125,7 @@ Handlers.add(
     end
 )
 
--- handler to check if user is authorized, sends a message back true if authorized, false if not
+-- Handler to check if user is authorized, sends a message back true if authorized, false if not
 Handlers.add(
     "CheckAuthorization",
     Handlers.utils.hasMatchingTag("Action", "CheckAuthorization"),
