@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Route, Link, Routes, Navigate } from 'react-router-dom';
 import { message, result, createDataItemSigner } from '@permaweb/aoconnect';
-
 
 // Components
 const MemberList = ({ members }) => (
@@ -15,15 +13,18 @@ const MemberList = ({ members }) => (
   </div>
 );
 
-const AdminPanel = ({ addMember }) => {
-  
+const AdminPanel = ({ addMember, isAdmin }) => {
   const [newMember, setNewMember] = useState('');
+  const [addMemberResult, setAddMemberResult] = useState('');
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    addMember(newMember);
+    const result = await addMember(newMember);
+    setAddMemberResult(result);
     setNewMember('');
   };
+
+  if (!isAdmin) return null;
 
   return (
     <div>
@@ -37,27 +38,7 @@ const AdminPanel = ({ addMember }) => {
         />
         <button type="submit">Add Member</button>
       </form>
-    </div>
-  );
-};
-
-// Pages
-const Home = ({ members }) => (
-  <div>
-    <h1>DAO Member Management</h1>
-    <MemberList members={members} />
-  </div>
-);
-
-const Admin = ({ isAdmin, addMember }) => {
-  if (!isAdmin) {
-    return <Navigate to="/" />;
-  }
-
-  return (
-    <div>
-      <h1>Admin Area</h1>
-      <AdminPanel addMember={addMember} />
+      {addMemberResult && <p>{addMemberResult}</p>}
     </div>
   );
 };
@@ -67,14 +48,23 @@ function App() {
   const [members, setMembers] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [messageResponse, setMessageResponse] = useState(null);
+  const [currentAddress, setCurrentAddress] = useState('');
 
-  const processId = "GpGKJdtAu2cqlEy2DK2mhGIs5i-anZUkCTsFNU5U9OE"; // Replace with your actual process ID
+  const processId = "GpGKJdtAu2cqlEy2DK2mhGIs5i-anZUkCTsFNU5U9OE"; // Your process ID
 
   useEffect(() => {
     checkConnection();
-    fetchMembers();
   }, []);
+
+  useEffect(() => {
+    if (isConnected) {
+      fetchMembers();
+    }
+  }, [isConnected]);
+
+  useEffect(() => {
+    setIsAdmin(members.includes(currentAddress));
+  }, [members, currentAddress]);
 
   const checkConnection = async () => {
     if (window.arweaveWallet) {
@@ -82,30 +72,10 @@ function App() {
         await window.arweaveWallet.connect(['ACCESS_ADDRESS', 'SIGN_TRANSACTION']);
         setIsConnected(true);
         const address = await window.arweaveWallet.getActiveAddress();
-        setIsAdmin(members.includes(address)); // Simple admin check
+        setCurrentAddress(address);
       } catch (error) {
         console.error('Error connecting to ArConnect:', error);
       }
-    }
-  };
-
-  const fetchResult = async (messageId) => {
-    try {
-      let { Messages, Spawns, Output, Error } = await result({
-        message: messageId,
-        process: processId,
-      });
-      console.log("Result data:", { Messages, Spawns, Output, Error });
-      if (Messages && Messages.length > 0) {
-        const resultData = JSON.parse(Messages[0].Data);
-        if (resultData.status === "success") {
-          setMembers(resultData.members);
-        } else {
-          console.error("Error in result data:", resultData.message);
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching result:", error);
     }
   };
 
@@ -118,14 +88,33 @@ function App() {
       });
       
       console.log("Message response:", response);
-      setMessageResponse(response);
-      fetchResult(response);
+      
+      let { Messages, Spawns, Output, Error } = await result({
+        message: response,
+        process: processId,
+      });
+
+      console.log("Result data:", { Messages, Spawns, Output, Error });
+
+      if (Messages && Messages.length > 0) {
+        const resultData = JSON.parse(Messages[0].Data);
+        if (resultData.status === "success") {
+          setMembers(resultData.members);
+        } else {
+          console.error("Error in result data:", resultData.message);
+        }
+      }
     } catch (error) {
-      console.error("Error sending message:", error);
+      console.error("Error fetching members:", error);
     }
   };
 
   const addMember = async (newMemberAddress) => {
+    if (!isAdmin) {
+      console.error("Only admins can add new members");
+      return "Error: Only admins can add new members";
+    }
+
     try {
       const response = await message({
         process: processId,
@@ -137,29 +126,39 @@ function App() {
       });
       
       console.log("Add member response:", response);
-      setMessageResponse(response);
-      fetchResult(response);
+      
+      let { Messages, Spawns, Output, Error } = await result({
+        message: response,
+        process: processId,
+      });
+
+      console.log("Result data:", { Messages, Spawns, Output, Error });
+
+      if (Messages && Messages.length > 0) {
+        // Assuming the response is a simple string, not JSON
+        const resultMessage = Messages[0].Data;
+        await fetchMembers(); // Refresh the member list
+        return resultMessage;
+      } else {
+        return "Error: No response received";
+      }
     } catch (error) {
       console.error("Error adding member:", error);
+      return "Error adding member: " + error.message;
     }
   };
 
   return (
-    <Router>
-      <div>
-        <nav>
-          <ul>
-            <li><Link to="/">Home</Link></li>
-            {isConnected && <li><Link to="/admin">Admin</Link></li>}
-          </ul>
-        </nav>
-
-        <Routes>
-          <Route path="/" element={<Home members={members} />} />
-          <Route path="/admin" element={<Admin isAdmin={isAdmin} addMember={addMember} />} />
-        </Routes>
-      </div>
-    </Router>
+    <div>
+      <h1>DAO Member Management</h1>
+      {!isConnected && <button onClick={checkConnection}>Connect to ArConnect</button>}
+      {isConnected && (
+        <>
+          <MemberList members={members} />
+          <AdminPanel isAdmin={isAdmin} addMember={addMember} />
+        </>
+      )}
+    </div>
   );
 }
 
